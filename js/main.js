@@ -473,6 +473,8 @@ function init() {
 			if (props.dialogy) textbox.style.top = props.dialogy.value + '%';
 			if (props.drawHitboxes) mouseOptions.drawHitboxes = props.drawHitboxes.value;
 			if (props.lensflare) {
+				glareEnabled = props.lensflare.value;
+				if (spineData) applyGlareOpacity(spineData.skeleton.data);
 				showLensflare = props.lensflare.value;
 				if (showLensflare) restoreSpecifiedSlots();
 			}
@@ -727,6 +729,27 @@ function load(dynamicBinaryPath, dynamicAtlasPath) {
 	canvas.style.visibility = 'visible';
 }
 
+const GLARE_SLOTS = new Set([
+	"FX_light_blur_4", "FX_screen", "FX_screen2", "FX_screen3",
+	"FX_light_blur_1_3", "01_light_blur3", "01_light_blur15", "01_light_blur1",
+	"01_screen"
+]);
+const GLARE_OPACITY = 0.24;
+let glareEnabled = true;
+const originalGlareOpacity = new WeakMap();
+
+// Scale attachment opacity once so animated slot colors still control the light.
+function applyGlareOpacity(skeletonData) {
+	for (const skin of skeletonData.skins) {
+		for (const { slotIndex, attachment } of skin.getAttachments()) {
+			const slot = skeletonData.slots[slotIndex];
+			if (!GLARE_SLOTS.has(slot.name) || slot.blendMode !== 1 || !attachment.color) continue;
+			if (!originalGlareOpacity.has(attachment)) originalGlareOpacity.set(attachment, attachment.color.a);
+			attachment.color.a = originalGlareOpacity.get(attachment) * (glareEnabled ? GLARE_OPACITY : 0);
+		}
+	}
+}
+
 function loadSpineData(binaryPath, atlasPath, premultipliedAlpha) {
 	// Load the texture atlas from the AssetManager.
 	let atlas = assetManager.get(atlasPath);
@@ -740,6 +763,7 @@ function loadSpineData(binaryPath, atlasPath, premultipliedAlpha) {
 	// Set the scale to apply during parsing, parse the file, and create a new skeleton.
 	skeletonBinary.scale = 1;
 	let skeletonData = skeletonBinary.readSkeletonData(assetManager.get(binaryPath));
+	applyGlareOpacity(skeletonData);
 	let skeleton = new spine.Skeleton(skeletonData);
 	let bounds = calculateSetupPoseBounds(skeleton);
 
