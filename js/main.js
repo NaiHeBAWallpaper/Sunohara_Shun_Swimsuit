@@ -10,6 +10,8 @@ let loadingResolution;
 let spineData;
 
 let customScale = 1;
+let positionX = 0;
+let positionY = 0;
 let targetFps = 60;
 let bgmfile = './assets/audio/Love Story.ogg';
 let bgmvolume = 0;
@@ -38,7 +40,17 @@ const MAX_RENDER_SCALE = 2;
 const MAX_RENDER_PIXELS = 5120 * 2880;
 
 let currentTracks = []; // 跟踪当前播放的音频
-window.selectedLanguage = 'Japanese'; // 全局语言变量（挂载到window对象）
+let interfaceLanguage = 'default';
+let steamLanguage = '';
+let subtitleLanguagePreference = 'auto';
+window.selectedLanguage = 'English';
+const subtitleLocales = {
+	English: 'en',
+	Chinese: 'zh-Hans',
+	TraditionalChinese: 'zh-Hant',
+	Japanese: 'ja',
+	Korean: 'ko'
+};
 let isVoicelinePlaying = false;
 
 const CHARACTER = 'CH0355';
@@ -61,6 +73,14 @@ const AUDIO_DETAIL = [
             Chinese: [
                 "咦！呀啊啊！？",
                 "老、老师！？这是，那个……！"
+            ],
+            TraditionalChinese: [
+                "咦！呀啊啊！？",
+                "老、老師！？這是，那個……！"
+            ],
+            Korean: [
+                "아뇨, 아뇨!",
+                "S-Sensei?! 이것은..."
             ]
         }
     },
@@ -77,6 +97,14 @@ const AUDIO_DETAIL = [
             Chinese: [
                 "这、这么说来……。",
                 "纱绫说过药效有些不稳……难不成……？"
+            ],
+            TraditionalChinese: [
+                "這、這麼說來……。",
+                "紗綾說過藥效有些不穩……難不成……？"
+            ],
+            Korean: [
+                "생각해봐...",
+                "Saya-san은 상황이 좀 불안정해질 수 있다고 언급했지만..."
             ]
         }
     },
@@ -93,6 +121,14 @@ const AUDIO_DETAIL = [
             Chinese: [
                 "不、老师不需要道歉……！话说……那个……呃。",
                 "我、我该怎么办……！"
+            ],
+            TraditionalChinese: [
+                "不、老師不需要道歉……！話說……那個……呃。",
+                "我、我該怎麼辦……！"
+            ],
+            Korean: [
+                "사과할 필요 없어, 상사...",
+                "내가 뭘 해야 할까요?"
             ]
         }
     },
@@ -112,6 +148,16 @@ const AUDIO_DETAIL = [
                 "不行！",
                 "那、那个……！",
                 "可以请您站在那里吗？我会找个地方躲起来……。"
+            ],
+            TraditionalChinese: [
+                "不行！",
+                "那，那個……",
+                "可以請您站在那裡嗎？我會找個地方躲起來……。"
+            ],
+            Korean: [
+                "안 봐!",
+                "저……",
+                "저기 서 주시겠어요?"
             ]
         }
     },
@@ -128,6 +174,14 @@ const AUDIO_DETAIL = [
             Chinese: [
                 "我……没问题的。",
                 "老师……再稍等一下……。"
+            ],
+            TraditionalChinese: [
+                "我……沒問題的。",
+                "老師……再稍等一下……。"
+            ],
+            Korean: [
+                "정말 괜찮아요",
+                "그래서, 상사님... 괜찮다면... 좀 더 이렇게 있을 수 있을까요?"
             ]
         }
     }
@@ -331,7 +385,8 @@ function drawHitboxes() {
 		n = (n / transpose) - (d[side].length / (transpose * 2));
 		n = n * customScale + (d[side].length / (transpose * 2));
 		n = (d[side].length / (transpose * 2)) - n;
-		return d[side].mid - n;
+		const offset = side === 'x' ? canvas.width * positionX : canvas.height * positionY;
+		return d[side].mid - n + offset;
 	}
 
 	for (const key in HITBOX) {
@@ -425,12 +480,45 @@ function setMouse(event) {
 		ax = canvas.width - ax;
 	}
 
-	return { x: ax, y: ay }
+	return { x: ax - canvas.width * positionX, y: ay - canvas.height * positionY };
+}
+
+function updateSubtitleLanguage() {
+	let language = subtitleLanguagePreference;
+	if (language === 'auto') {
+		const locale = interfaceLanguage === 'default' ? steamLanguage : interfaceLanguage;
+		const [primary, region] = locale.split(/[-_]/);
+		if (primary === 'tchinese' || (primary === 'zh' && ['cht', 'hant', 'tw', 'hk', 'mo'].includes(region))) {
+			language = 'TraditionalChinese';
+		} else if (primary === 'schinese' || primary === 'zh') {
+			language = 'Chinese';
+		} else if (primary === 'ja' || primary === 'japanese') {
+			language = 'Japanese';
+		} else if (primary === 'ko' || primary === 'korean' || primary === 'koreana') {
+			language = 'Korean';
+		} else {
+			language = 'English';
+		}
+	}
+
+	if (language === window.selectedLanguage) return;
+	window.selectedLanguage = language;
+	textbox.lang = subtitleLocales[language];
+	const clip = currentTracks.at(-1);
+	if (dialogBox && clip) textbox.textContent = clip.dialog[language][clip.index];
 }
 
 function init() {
 	// Wallpaper Engine settings
 	window.wallpaperPropertyListener = {
+		applyGeneralProperties: (props) => {
+			const language = props.language?.value ?? props.language;
+			const steamLocale = props.steamlanguage?.value ?? props.steamlanguage;
+			if (typeof language !== 'string' && typeof steamLocale !== 'string') return;
+			if (typeof language === 'string') interfaceLanguage = language.toLowerCase();
+			if (typeof steamLocale === 'string') steamLanguage = steamLocale.toLowerCase();
+			updateSubtitleLanguage();
+		},
 		applyUserProperties: (props) => {
 			if (props.schemecolor) {
 				bufferColor = props.schemecolor.value.split(" ");
@@ -439,8 +527,16 @@ function init() {
 			if (props.scale) {
 				customScale = props.scale.value;
 				document.documentElement.style.setProperty('--wallpaper-scale', customScale);
-				resize();
 			}
+			if (props.positionx) {
+				positionX = props.positionx.value / 100;
+				document.documentElement.style.setProperty('--wallpaper-position-x', props.positionx.value + 'vw');
+			}
+			if (props.positiony) {
+				positionY = props.positiony.value / 100;
+				document.documentElement.style.setProperty('--wallpaper-position-y', props.positiony.value + 'vh');
+			}
+			if (props.scale || props.positionx || props.positiony) resize();
 			if (props.targetfps) targetFps = props.targetfps.value;
 
 			if (props.introanimation) introAnimation = props.introanimation.value;
@@ -481,18 +577,15 @@ function init() {
 
 			// 监听模型分辨率设置
 			if (props.modelresolution) modelResolution = props.modelresolution.value;
-			if (assetManager && typeof introAnimation !== 'undefined' && !modelFrame && loadingResolution !== modelResolution) {
+			if (assetManager && typeof introAnimation !== 'undefined' && !modelFrame &&
+				(props.modelresolution || loadingResolution !== modelResolution)) {
 				reloadModel();
 			}
 
-			// 新增：监听语言选择
 			if (props.dialoglanguage) {
-				window.selectedLanguage = props.dialoglanguage.value; // 更新全局语言变量
-				// 更新当前播放的音频文本
-				const clip = currentTracks[currentTracks.length - 1];
-				if (dialogBox && clip) {
-					textbox.textContent = clip.dialog[window.selectedLanguage][clip.index];
-				}
+				const language = props.dialoglanguage.value;
+				subtitleLanguagePreference = Object.hasOwn(subtitleLocales, language) ? language : 'auto';
+				updateSubtitleLanguage();
 			}
 
 			if (props.bgmfile) {
@@ -515,6 +608,7 @@ function init() {
 	};
 
 	textbox = document.getElementById('textbox');
+	textbox.lang = subtitleLocales[window.selectedLanguage];
 
 	canvas = document.getElementById('canvas');
 	canvas.addEventListener('mouseleave', releaseHeadpatOnExit);
@@ -645,6 +739,8 @@ function reloadModel() {
 
 // CITATION: http://esotericsoftware.com/spine-api-reference#
 // CITATION: http://en.esotericsoftware.com/forum/Spine-Unity-Making-the-arm-follow-the-mouse-7856
+let modelMouseHandlersBound = false;
+
 function interactionLoad() {
 	// Touch_Point and Touch_Eye
 	TPoint = spineData.skeleton.findBone('Touch_Point');
@@ -652,28 +748,31 @@ function interactionLoad() {
 	EPointX = TEye.x;
 	EPointY = TEye.y;
 
-	downaction = canvas.addEventListener('mousedown', function (event) {
-		if (isVoicelinePlaying || !acceptingClick) {
-			return;
-		}
-		acceptingClick = false;
-		let mouseData = setMouse(event);
-		pressedMouse(mouseData.x, mouseData.y);
-	});
-	upaction = canvas.addEventListener('mouseup', function () {
-		// Only call releasedMouse if there was a valid mousedown interaction
-		// (i.e., mouseSelect is not -1 or acceptingClick was set to false by pressedMouse)
-		if (mouseSelect !== -1) {
-			releasedMouse();
-		} else {
-			// Ensure acceptingClick is restored even if no interaction occurred
-			if (!headpatCooldown) acceptingClick = true;
-		}
-	});
-	moveaction = canvas.addEventListener('mousemove', function (event) {
-		let mouseData = setMouse(event);
-		movedMouse(mouseData.x, mouseData.y);
-	});
+	if (!modelMouseHandlersBound) {
+		modelMouseHandlersBound = true;
+		downaction = canvas.addEventListener('mousedown', function (event) {
+			if (isVoicelinePlaying || !acceptingClick) {
+				return;
+			}
+			acceptingClick = false;
+			let mouseData = setMouse(event);
+			pressedMouse(mouseData.x, mouseData.y);
+		});
+		upaction = canvas.addEventListener('mouseup', function () {
+			// Only call releasedMouse if there was a valid mousedown interaction
+			// (i.e., mouseSelect is not -1 or acceptingClick was set to false by pressedMouse)
+			if (mouseSelect !== -1) {
+				releasedMouse();
+			} else {
+				// Ensure acceptingClick is restored even if no interaction occurred
+				if (!headpatCooldown) acceptingClick = true;
+			}
+		});
+		moveaction = canvas.addEventListener('mousemove', function (event) {
+			let mouseData = setMouse(event);
+			movedMouse(mouseData.x, mouseData.y);
+		});
+	}
 
 	if (!introAnimation) {
 		acceptingClick = true;
@@ -905,7 +1004,7 @@ function resize() {
 		transpose = 1600 / canvas.height;
 	}
 
-	mvp.ortho2d(centerX - width / 2, centerY - height / 2, width, height);
+	mvp.ortho2d(centerX - width / 2 - positionX * width, centerY - height / 2 + positionY * height, width, height);
 	gl.viewport(0, 0, canvas.width, canvas.height);
 }
 
